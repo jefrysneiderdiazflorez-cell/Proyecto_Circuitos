@@ -1,0 +1,234 @@
+% Informe tecnico IEEE - version 4 (a partir del texto del equipo)
+% Cambios: el potenciometro emula la senal del sensor en las pruebas; los resultados solo afirman
+% lo que esta respaldado por el monitor serial; lo pendiente va en ROJO como [COMPLETAR: ...].
+% Antes de entregar: buscar "COMPLETAR" y no dejar ninguno. Subir las figuras a la carpeta figuras/.
+
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{cite,graphicx,amsmath,listings,xcolor,url}
+\let\oldsection\section
+\renewcommand{\section}[1]{\oldsection{\textcolor{red}{#1}}}
+\newcommand{\pend}[1]{\textcolor{red}{\textbf{[COMPLETAR: #1]}}}
+\lstset{basicstyle=\ttfamily\scriptsize,breaklines=true,frame=single}
+
+\begin{document}
+\title{Sistema embebido de riego automático para el invernadero de la Universidad de San Buenaventura, sede Bogotá}
+\author{\IEEEauthorblockN{Angel Figueredo, Jefry Diaz, Mario Ruiz, Carlos Sandoval}
+\IEEEauthorblockA{Ingeniería Multimedia, Universidad de San Buenaventura, Bogotá}}
+\maketitle
+
+\begin{abstract}
+El invernadero de la universidad depende de una persona que dedique mucho tiempo al riego, lo que dificulta dosificar el agua y expone las plantas a la sobrehidratación y al desperdicio de recursos hídricos. Se construyó un sistema embebido sobre Arduino Mega 2560 que lee la humedad del suelo con un sensor YL-69, activa una bomba mediante un módulo relé y avisa con un buzzer. Un pulsador con resistencia pull-down externa permite regar manualmente con prioridad sobre el sensor, y el estado se reporta por UART. Como el sensor resultó muy sensible a la humedad ambiente, la lógica se probó con un potenciómetro que emuló su señal y se verificó por el monitor serial. El pulsador de riego manual no se verificó en las pruebas.
+\end{abstract}
+
+\section{Introducción}
+El invernadero de la universidad está ubicado entre dos edificios del campus, por lo que recibe buen sol en la mañana y muy poco en la tarde. Es visible para toda la comunidad desde el camino que conecta ambos edificios. Alberga alrededor de 50 plantas, que se riegan entre dos y tres días por semana según la especie. Del riego se encargan el personal de vegetación, limpieza y mantenimiento de las instalaciones y algunos semilleros de investigación conformados por estudiantes y profesores. La información sobre el funcionamiento del invernadero se obtuvo gracias al ofrecimiento de integración de los semilleros de investigación, y la ubicación y el aspecto del espacio fueron observados directamente por el equipo. La Fig.~\ref{fig:inv} muestra el espacio.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{Inviernadero_1.png}
+\caption{Interior del invernadero de la universidad (fotografía del equipo).}\label{fig:inv}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{Inviernadero_2.png}
+\caption{Estantes y plantas del invernadero (fotografía del equipo).}\label{fig:inv2}
+\end{figure}
+
+El cuidado de las plantas exige presencia humana constante para regar. Esto tiene dos consecuencias. Primero, el agua se aplica sin una medición objetiva de la necesidad real de cada planta, de modo que depende del criterio de quien riega y de su disponibilidad. Segundo, se corre el riesgo de sobrehidratar las plantas y de desperdiciar agua. Además, la exposición al sol cambia a lo largo del día, lo que sugiere que no todas las zonas se secan al mismo ritmo.
+
+Un sistema embebido es una respuesta pertinente porque la tarea es repetitiva y depende de una variable medible, la humedad del suelo. Un microcontrolador puede leer esa variable de forma continua, decidir cuándo regar y liberar el tiempo del personal y de los semilleros. El desarrollo se guió por los siguientes objetivos:
+\begin{itemize}
+\item Medir la humedad del suelo con un sensor de bajo costo.
+\item Activar el riego solo cuando el suelo lo requiera, para evitar la sobrehidratación y el desperdicio de agua.
+\item Permitir una intervención manual con prioridad sobre el sensor.
+\item Reportar el estado del sistema por comunicación serial.
+\end{itemize}
+
+\section{Marco teórico}
+\subsection{Sensor de humedad YL-69}
+Es un sensor resistivo: dos sondas miden la conductividad del suelo, que aumenta con el contenido de agua. El módulo incluye un comparador LM393 que entrega una salida digital según un umbral ajustable con un potenciómetro \cite{lm393}. Además ofrece salida digital y analógica y opera entre 3,3 y 5 V \cite{yl69b}. Los distribuidores advierten que es muy sensible a la humedad ambiente \cite{yl69}, lo que coincide con lo observado por el equipo. El diseño usa la salida digital, que solo indica suelo seco o húmedo.
+\subsection{Módulo relé y bomba}
+El relé es un interruptor electromecánico que aísla el circuito de control de la carga. Permite que el Arduino conmute la bomba sin alimentarla desde sus pines. El módulo empleado integra un relé de 5 V con un contacto conmutado, referencia JQC3F-05VDC-C, de la familia JQC-3FF \cite{rele}. La bomba es una mini bomba sumergible de 3 a 6 V DC, cuyo consumo típico es de 130 a 220 mA y su caudal de 80 a 120 L/h \cite{bomba}. Ese consumo supera lo que puede entregar con seguridad un pin de entrada/salida del Arduino \cite{arduino}, por lo que se justifica conmutarla con el relé y alimentarla con un portapilas de cuatro pilas AA.
+\subsection{Carga inductiva y diodo de protección}
+La bomba contiene un motor de corriente continua, que es una carga inductiva. Al interrumpir su corriente se generan picos de tensión que pueden dañar los contactos o los circuitos de control. Por eso la simulación incluye un diodo en paralelo con el motor.
+\subsection{Potenciómetro}
+Divisor de tensión variable cuya salida puede ajustarse manualmente entre 0 V y la tensión de alimentación. En las pruebas se conectó a la entrada analógica A0 para emular la señal del sensor: al girarlo, la lectura del conversor analógico-digital varía entre 0 y 1023, y se compara con un umbral para decidir si el suelo está seco. No forma parte del diseño final.
+\subsection{Resistencias pull-up y pull-down}
+Una entrada digital sin conexión definida queda flotante y puede leer valores aleatorios. Una resistencia pull-down conecta la entrada a tierra, por lo que mantiene el nivel bajo mientras el pulsador está abierto. Al cerrarlo, la entrada recibe 5 V y lee nivel alto \cite{arduino}. La pull-up funciona al contrario. El valor debe ser lo bastante alto para limitar la corriente cuando el pulsador está cerrado y lo bastante bajo para fijar el nivel con firmeza.
+\subsection{Rebote del pulsador}
+Un pulsador mecánico no cambia de estado de forma limpia: al cerrarse produce oscilaciones breves que el microcontrolador puede interpretar como varias pulsaciones. Una solución por software es aceptar un nuevo estado solo si se mantiene estable durante un tiempo mínimo.
+\subsection{Comunicación UART}
+Protocolo serial asíncrono entre el Arduino y el computador. No usa señal de reloj: ambos extremos acuerdan una velocidad, aquí 9600 baudios, y cada byte se enmarca con bits de inicio y de parada. En el sistema se emplea para reportar la lectura del sensor, el estado del pulsador y el estado de la bomba, lo que permite depurar y verificar el comportamiento.
+
+\section{Diseño del sistema}
+\subsection{Microcontrolador}
+Se usó un Arduino Mega 2560 \cite{arduino}. Ofrece 54 pines digitales y 16 analógicos, suficientes para las entradas y los actuadores, con margen para ampliar el sistema. Se descartó el ESP32 porque esta versión no requiere conectividad inalámbrica, que se plantea como mejora.
+\subsection{Componentes y pines}
+La Tabla~\ref{tab:pines} resume las conexiones del sistema.
+
+\begin{table}[h]\centering\caption{Componentes y pines del sistema}\label{tab:pines}
+\begin{tabular}{|l|c|l|}\hline
+Componente & Pin & Función\\\hline
+Pulsador & D2 & Entrada manual\\
+Sensor YL-69 (DO) & D6 & Entrada de humedad\\
+Módulo relé & D3 & Actuador 1 (bomba)\\
+Buzzer & D8 & Actuador 2 (aviso)\\
+Potenciómetro (solo pruebas) & A0 & Emula el sensor\\
+USB (UART) & TX0/RX0 & Reporte al PC\\\hline
+\end{tabular}\end{table}
+
+\subsection{Circuito y resistencia pull-down}
+El pulsador usa una resistencia pull-down externa de 10 k$\Omega$ (franjas marrón, negro y naranja, Fig.~\ref{fig:res}) sin \texttt{INPUT\_PULLUP}. Con 10 k$\Omega$ la corriente con el pulsador cerrado es $I=5\,\text{V}/10\,\text{k}\Omega=0{,}5$ mA, baja para el microcontrolador y suficiente para un nivel bajo estable. El diagrama de conexiones se muestra en la Fig.~\ref{fig:sim}.
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.6\columnwidth]{Resistencia.png}
+\caption{Resistencia pull-down del pulsador en la protoboard.}\label{fig:res}
+\end{figure}
+
+\subsection{Alimentación}
+El Arduino se alimenta por USB desde el computador. La bomba se alimenta con un portapilas de cuatro pilas AA a través del contacto del relé, de modo que el Arduino no la alimenta directamente (Fig.~\ref{fig:rele}). Cuatro pilas AA entregan una tensión nominal cercana a 6 V, dentro del rango de operación de la bomba \cite{bomba}.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{pele,bomba,alimentacion.jpeg}
+\caption{Módulo relé, bomba y portapilas de alimentación de la bomba.}\label{fig:rele}
+\end{figure}
+
+\subsection{Lógica de control y flujo de datos}
+El sensor y el pulsador son las entradas. El Arduino evalúa la condición de riego y activa el relé con la bomba y el buzzer; el estado se envía por UART. Con $S$ verdadero cuando el suelo está seco y $B$ verdadero cuando el pulsador está presionado, el riego se activa según
+\begin{equation}
+R = S \lor B .
+\end{equation}
+Esto da prioridad al pulsador: riega aunque el sensor indique humedad, para casos en que las plantas se ven secas. El relé y el buzzer se accionan solo cuando $R$ cambia de valor.
+\subsection{Maqueta}
+Como base de diseño se elaboró una propuesta de instalación (Fig.~\ref{fig:conc}) con dimensiones de 5,0 m de largo, 5,0 m de ancho y 3,0 m de alto, que incluye sensor de humedad en el suelo, controlador, bomba, tanque de agua y riego por goteo. La figura es una ilustración conceptual y no corresponde a la maqueta física construida. La maqueta física mide aproximadamente 10 cm de largo, 10 cm de ancho y 6 cm de alto. Frente a un invernadero de unos 5 m de largo, 5 m de ancho y 3 m de alto, la escala es de 1:50 en las tres dimensiones (500\,cm\,/\,10\,cm = 50 en el largo y el ancho, y 300\,cm\,/\,6\,cm = 50 en el alto), por lo que se conservan las proporciones. En la maqueta, el sensor de humedad se ubica en la tierra, cerca de las plantas; la bomba se coloca en una esquina del fondo para que no estorbe en el espacio de trabajo; y el buzzer se sitúa a unos 10 cm detrás del sensor.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{dise_concep.png}
+\caption{Ilustración conceptual del sistema propuesto para el invernadero.}\label{fig:conc}
+\end{figure}
+
+\subsection{Simulación}
+El circuito se simuló en Tinkercad antes del montaje físico (Fig.~\ref{fig:sim}). La simulación incluye un Arduino Uno, el sensor de humedad del suelo, el pulsador con su resistencia, el buzzer, el módulo relé y un motor que representa la bomba alimentada por una batería de 9 V. Se agregó un diodo en paralelo con el motor para proteger el circuito de los picos de tensión al apagarlo. La simulación difiere del montaje físico en tres puntos: usa un Arduino Uno en lugar del Mega 2560, una batería de 9 V en lugar de las pilas AA y un sensor de humedad que en Tinkercad se conecta a una entrada analógica, mientras que el diseño del montaje usa la salida digital D6 del módulo YL-69. La simulación se realizó con un solo Arduino Uno porque era una etapa de pruebas para conocer el proceso de conexión, estimar el costo y determinar los requerimientos para que el sistema funcione correctamente.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{tinkercad.jpeg}
+\caption{Simulación del sistema en Tinkercad.}\label{fig:sim}
+\end{figure}
+
+\section{Implementación y desarrollo}
+La construcción fue progresiva y siguió cuatro etapas. Primero se verificó cada componente por separado: el sensor, el relé con la bomba, el pulsador con su resistencia y el buzzer. Luego se integraron en la protoboard y se conectaron al Arduino. En tercer lugar se programó la lógica de control y se observó el estado por el monitor serial. Por último se probó la lógica con la señal del potenciómetro en lugar del sensor. El pulsador se implementó para el riego manual, pero su funcionamiento no se verificó en estas pruebas. Esta estrategia permitió detectar fallas de conexión de forma temprana. Las Figs.~\ref{fig:mont}, \ref{fig:prot} y \ref{fig:pc} muestran el montaje.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{montaje_general.png}
+\caption{Montaje del circuito: Arduino Mega 2560, relé, bomba, buzzer y sensor.}\label{fig:mont}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{protoboar.png}
+\caption{Protoboard con pulsador y resistencia pull-down, potenciómetro y buzzer.}\label{fig:prot}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.7\columnwidth]{montaje sensor.png}
+\caption{Montaje de pruebas conectado al computador con el Arduino IDE.}\label{fig:pc}
+\end{figure}
+
+La lógica central de decisión es:
+\begin{lstlisting}[language=C]
+bool irrigationRequested = soilDry || buttonPressed; // prioridad manual
+if (irrigationRequested != pumpActive) {
+  pumpActive = irrigationRequested;
+  digitalWrite(PIN_RELAY, pumpActive ? RELAY_ON : RELAY_OFF);
+  tone(PIN_BUZZER, 1000, 200); // aviso al cambiar de estado
+}
+\end{lstlisting}
+El relé y el buzzer solo se accionan cuando cambia el estado, lo que reduce las conmutaciones innecesarias. Esto no elimina las oscilaciones si la señal del sensor fluctúa cerca del umbral; para eso haría falta una histéresis.
+
+En las pruebas con el potenciómetro, la variable \texttt{soilDry} se calcula comparando la lectura de A0 con un umbral (\texttt{UMBRAL\_SECO = 400}): un valor menor se interpreta como suelo seco, igual que en la simulación.
+
+El pulsador se filtra por software con un tiempo antirrebote de 40 ms:
+\begin{lstlisting}[language=C]
+bool readButton() {
+  bool currentReading = digitalRead(PIN_BUTTON);
+  if (currentReading != lastButtonReading) {
+    debounceTime = millis();      // reinicia el temporizador
+    lastButtonReading = currentReading;
+  }
+  if (millis() - debounceTime >= DEBOUNCE_DELAY) {
+    stableButton = currentReading; // estado estable
+  }
+  return stableButton;
+}
+\end{lstlisting}
+La función compara la lectura actual con la anterior y solo acepta el nuevo estado cuando se mantiene sin cambios durante \texttt{DEBOUNCE\_DELAY}. Se usó \texttt{millis()} en lugar de \texttt{delay()} para no bloquear el programa. Por la misma razón, el reporte serial se envía cada 500 ms con un temporizador y no con una pausa.
+
+La polaridad del relé se definió con las constantes \texttt{RELAY\_ON} y \texttt{RELAY\_OFF}, de modo que si un módulo funciona al contrario basta con invertirlas sin tocar la lógica. El relé se apaga antes de configurar el pin como salida, para que la bomba no se active al encender el sistema.
+
+\textbf{Problema 1: sensibilidad del sensor.} El YL-69 era muy sensible: reaccionaba incluso con la humedad del ambiente y las pruebas variaban mucho, lo que dificultaba repetirlas. Para validar la lógica de control sin depender de esa variabilidad, se conectó un potenciómetro a la entrada analógica A0 y se usó su posición para emular un suelo seco o húmedo. El potenciómetro no forma parte del diseño final, y por eso el sensor real queda sin validar en suelo, como limitación.
+
+\textbf{Problema 2: lógica con sensor digital.} Un sensor en modo digital solo distingue presencia o ausencia de agua, sin umbral numérico. El sistema se limitó a una lógica binaria; un umbral configurable requeriría un sensor analógico.
+
+\section{Resultados y análisis}
+Con el sensor digital, el sistema solo recibe dos estados: suelo húmedo o suelo seco. En las pruebas, la señal del potenciómetro en A0 reemplazó al sensor y el estado se verificó por el monitor serial. La Tabla~\ref{tab:log} resume la lógica implementada y la Tabla~\ref{tab:pruebas}, las pruebas realizadas.
+
+\begin{table}[h]\centering\caption{Lógica de control implementada}\label{tab:log}
+\begin{tabular}{|c|c|c|}\hline
+Suelo & Pulsador & Bomba\\\hline
+Húmedo & Libre & Apagada\\
+Seco & Libre & Encendida\\
+Húmedo & Presionado & Encendida\\
+Seco & Presionado & Encendida\\\hline
+\end{tabular}\end{table}
+
+\begin{table}[h]\centering\caption{Pruebas realizadas (monitor serial)}\label{tab:pruebas}
+\begin{tabular}{|p{2.3cm}|p{3.3cm}|p{1.7cm}|}\hline
+Prueba & Resultado & Estado\\\hline
+Potenciómetro bajo (A0 $<$ 400) & A0 entre 0 y 46, Seco: 1, Manual: 0, Bomba: ON & Verificado\\\hline
+Potenciómetro alto (A0 $>$ 400) & Por diseño: Seco = 0 y Bomba: OFF & No documentado\\\hline
+Pulsador presionado & Función de diseño: Manual = 1 activa la bomba & No verificado\\\hline
+\end{tabular}\end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.85\columnwidth]{monitor.png}
+\caption{Monitor serial durante las pruebas con el potenciómetro.}\label{fig:ser}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\columnwidth]{pele,bomba,alimentacion.jpeg}
+\caption{Módulo relé con sus indicadores encendidos durante una prueba.}\label{fig:rel}
+\end{figure}
+
+El estado se reporta por UART cada 500 ms. El mensaje incluye la lectura analógica de A0, si el suelo está seco o húmedo, si el pulsador está presionado o libre y si la bomba está encendida o apagada. Esto permitió comprobar la lógica sin depender solo de la observación de la bomba. Con el potenciómetro en su posición baja, el monitor reportó \texttt{Seco: 1} y \texttt{Bomba: ON}, y el módulo relé mostró su indicador rojo encendido (Fig.~\ref{fig:rel}). El funcionamiento de la bomba durante la prueba se documentó en video \cite{video}.
+
+La tercera fila de la Tabla~\ref{tab:log} refleja el aporte previsto del pulsador: permitir el riego cuando las plantas se ven secas aunque el sensor indique humedad, algo que un sistema solo automático no resolvería. El análisis también deja una limitación clara: al ser binaria, la salida no permite distinguir grados de sequedad ni definir umbrales distintos por especie, y el sensor resistivo reacciona a la humedad ambiente. Además, al sustituir el sensor por un potenciómetro, no se validó su comportamiento en suelo real. Esto justifica pasar a un sensor analógico en una versión posterior.
+
+La Tabla~\ref{tab:req} relaciona el sistema con los requisitos técnicos del proyecto.
+
+\begin{table}[h]\centering\caption{Cumplimiento de requisitos técnicos}\label{tab:req}
+\begin{tabular}{|p{2.3cm}|p{5.3cm}|}\hline
+Requisito & Cómo se cumple\\\hline
+Dos entradas & Pulsador manual y sensor YL-69\\
+Pull-down externa & Resistencia de 10 k$\Omega$ en el pulsador\\
+Comunicación serial & UART a 9600 baudios hacia el PC\\
+Dos actuadores & Bomba (con relé) y buzzer\\\hline
+\end{tabular}\end{table}
+
+\section{Conclusiones}
+El sistema integró dos entradas y dos actuadores de distinto tipo con comunicación UART. La lógica de control activa el relé solo cuando se cumple la condición de riego, lo que apunta al objetivo de reducir el desperdicio de agua y la sobrehidratación en el invernadero. Se incorporó una prioridad manual para regar cuando el sensor no refleja la sequedad visible.
+
+Entre las limitaciones están el sensor resistivo, muy sensible a la humedad ambiente y de durabilidad limitada, y la salida binaria, que impide ajustar el riego a cada especie. Las pruebas de la lógica se hicieron con un potenciómetro en lugar del sensor, por lo que su comportamiento en suelo real queda sin validar, y el pulsador de riego manual no se verificó. La exposición al sol del invernadero cambia a lo largo del día, y un sensor digital único no refleja esas diferencias entre zonas. Además, el circuito está sin protección frente a la humedad.
+
+Como mejoras se proponen un sensor capacitivo analógico con umbrales programables, varios puntos de medición, una histéresis para evitar conmutaciones cerca del umbral, protección del circuito frente a la humedad y conectividad con ESP32 para monitoreo remoto. La simulación y el montaje de pruebas permitieron conocer el proceso de conexión, el costo y lo que se requiere para que el sistema funcione completo, y sugieren que es una solución útil para reducir el tiempo de riego manual.
+
+\begin{thebibliography}{6}
+\bibitem{lm393} Texas Instruments, ``LM393 Dual Differential Comparator,'' hoja de datos. [En línea]. Disponible: \url{http://www.ti.com/lit/ds/symlink/lm393-n.pdf}
+\bibitem{arduino} Arduino, ``Arduino Mega 2560 Rev3,'' documentación oficial. [En línea]. Disponible: \url{https://docs.arduino.cc/hardware/mega-2560/}
+\bibitem{yl69} PiShop, ``YL-69 Soil Hygrometer Humidity Detection Module.'' [En línea]. Disponible: \url{https://www.pishop.us/product/yl-69-soil-hygrometer-humidity-detection-module-soil-moisture-water-sensor-for-arduino/}
+\bibitem{yl69b} Electropeak, ``YL-69 Soil Moisture Detection Sensor Module,'' especificaciones. [En línea]. Disponible: \url{https://electropeak.com/soil-moisture-sensor-1}
+\bibitem{rele} Hongfa, ``JQC-3FF Subminiature High Power Relay,'' hoja de datos. [En línea]. Disponible: \url{https://www.generationrobots.com/media/JQC-3FF-v1.pdf}
+\bibitem{bomba} Electrokit, ``Submersible waterpump 3-6V 120 L/h,'' especificaciones. [En línea]. Disponible: \url{https://www.electrokit.com/en/submersible-waterpump-3-6v-120l/h}
+\bibitem{video} Equipo del proyecto, ``Prueba de la bomba de agua del sistema de riego,'' video, 2026. [En línea]. Disponible: https://youtu.be/Euz11pjHtjA
+\end{thebibliography}
+\end{document}
